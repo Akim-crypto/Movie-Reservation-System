@@ -1,0 +1,885 @@
+openapi: 3.1.0
+info:
+  title: Movie Reservation Service API
+  version: 1.0.0
+  description: >
+    Бэкенд для сервиса бронирования кино. Поддерживает регистрацию/логин,
+    управление фильмами и сеансами (для админов), бронирование мест, просмотр/отмену
+    бронирований и отчётность по загрузке и выручке.
+
+servers:
+  - url: https://api.example.com
+    description: Production
+  - url: http://localhost:4000
+    description: Local
+
+tags:
+  - name: Auth
+  - name: Users
+  - name: Genres
+  - name: Movies
+  - name: Showtimes
+  - name: Seats
+  - name: Reservations
+  - name: Admin / Management
+  - name: Admin / Reports
+  - name: Utils
+
+security:
+  - bearerAuth: []
+
+paths:
+  /healthz:
+    get:
+      tags: [Utils]
+      summary: Liveness/health check
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+
+  #######################
+  # AUTH
+  #######################
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Sign up (regular user)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterInput' }
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        "409": { $ref: '#/components/responses/Conflict' }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in and get tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginInput' }
+      responses:
+        "200":
+          description: Tokens issued
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        "200":
+          description: New access token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken: { type: string }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Invalidate refresh token
+      responses:
+        "204": { description: Logged out }
+
+  #######################
+  # USERS
+  #######################
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Get current user profile
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /users/{userId}/role:
+    patch:
+      tags: [Users]
+      summary: Promote/demote user role (admin only)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role:
+                  type: string
+                  enum: [user, admin]
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  #######################
+  # GENRES
+  #######################
+  /genres:
+    get:
+      tags: [Genres]
+      summary: List genres
+      responses:
+        "200":
+          description: Genres
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Genre' }
+    post:
+      tags: [Genres]
+      summary: Create genre (admin)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GenreInput' }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Genre' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /genres/{genreId}:
+    delete:
+      tags: [Genres]
+      summary: Delete genre (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/GenreId'
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  #######################
+  # MOVIES
+  #######################
+  /movies:
+    get:
+      tags: [Movies]
+      summary: List movies
+      parameters:
+        - in: query
+          name: genreId
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        "200":
+          description: Movies
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedMovies' }
+    post:
+      tags: [Movies]
+      summary: Create movie (admin)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MovieInput' }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Movie' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /movies/{movieId}:
+    get:
+      tags: [Movies]
+      summary: Get movie by id
+      parameters:
+        - $ref: '#/components/parameters/MovieId'
+      responses:
+        "200":
+          description: Movie
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Movie' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Movies]
+      summary: Update movie (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/MovieId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MovieUpdate' }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Movie' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [Movies]
+      summary: Delete movie (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/MovieId'
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /movies/{movieId}/showtimes:
+    get:
+      tags: [Showtimes]
+      summary: List showtimes for a movie
+      parameters:
+        - $ref: '#/components/parameters/MovieId'
+        - $ref: '#/components/parameters/Date'
+      responses:
+        "200":
+          description: Showtimes
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Showtime' }
+    post:
+      tags: [Showtimes]
+      summary: Create showtime for a movie (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/MovieId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShowtimeInput' }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Showtime' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  #######################
+  # SHOWTIMES
+  #######################
+  /showtimes:
+    get:
+      tags: [Showtimes]
+      summary: Browse showtimes by date/movie
+      parameters:
+        - $ref: '#/components/parameters/Date'
+        - in: query
+          name: movieId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: cinemaId
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Showtimes
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Showtime' }
+
+  /showtimes/{showtimeId}:
+    get:
+      tags: [Showtimes]
+      summary: Get showtime
+      parameters:
+        - $ref: '#/components/parameters/ShowtimeId'
+      responses:
+        "200":
+          description: Showtime
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Showtime' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Showtimes]
+      summary: Update showtime (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ShowtimeId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShowtimeUpdate' }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Showtime' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [Showtimes]
+      summary: Delete showtime (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ShowtimeId'
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  #######################
+  # SEATS
+  #######################
+  /showtimes/{showtimeId}/seats:
+    get:
+      tags: [Seats]
+      summary: Seat map & availability for showtime
+      parameters:
+        - $ref: '#/components/parameters/ShowtimeId'
+      responses:
+        "200":
+          description: Seat grid with status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeatMap' }
+
+  # (Опционально) механизм hold/lock для борьбы с гонками
+  /showtimes/{showtimeId}/locks:
+    post:
+      tags: [Seats]
+      summary: Temporarily hold seats before final reservation
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ShowtimeId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [seatIds, ttlSeconds]
+              properties:
+                seatIds:
+                  type: array
+                  items: { type: string, format: uuid }
+                ttlSeconds:
+                  type: integer
+                  minimum: 10
+                  maximum: 600
+      responses:
+        "201":
+          description: Seats held
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeatLock' }
+        "409": { $ref: '#/components/responses/Conflict' }
+
+  /showtimes/{showtimeId}/locks/{lockId}:
+    delete:
+      tags: [Seats]
+      summary: Release hold
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ShowtimeId'
+        - $ref: '#/components/parameters/LockId'
+      responses:
+        "204": { description: Released }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  #######################
+  # RESERVATIONS
+  #######################
+  /showtimes/{showtimeId}/reservations:
+    post:
+      tags: [Reservations]
+      summary: Create reservation for seats
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ShowtimeId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReservationCreate' }
+      responses:
+        "201":
+          description: Reservation created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reservation' }
+        "409": { $ref: '#/components/responses/Conflict' }
+
+  /reservations:
+    get:
+      tags: [Reservations]
+      summary: List my reservations
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [upcoming, past, canceled]
+      responses:
+        "200":
+          description: My reservations
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Reservation' }
+
+  /reservations/{reservationId}:
+    get:
+      tags: [Reservations]
+      summary: Get reservation by id (owner or admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ReservationId'
+      responses:
+        "200":
+          description: Reservation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reservation' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Reservations]
+      summary: Cancel upcoming reservation (owner or admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ReservationId'
+      responses:
+        "204": { description: Canceled }
+        "409": { $ref: '#/components/responses/Conflict' }
+
+  #######################
+  # ADMIN
+  #######################
+  /admin/reservations:
+    get:
+      tags: [Admin / Management]
+      summary: List all reservations (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+        - in: query
+          name: movieId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: showtimeId
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        "200":
+          description: All reservations
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedReservations' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /admin/reports/summary:
+    get:
+      tags: [Admin / Reports]
+      summary: Revenue & capacity summary by date range (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+        - in: query
+          name: groupBy
+          schema:
+            type: string
+            enum: [day, movie, showtime]
+            default: day
+      responses:
+        "200":
+          description: Summary report
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportSummary' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /admin/reports/showtimes:
+    get:
+      tags: [Admin / Reports]
+      summary: Per-showtime stats (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Date'
+      responses:
+        "200":
+          description: Stats per showtime
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ShowtimeStats' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    UserId:
+      in: path
+      name: userId
+      required: true
+      schema: { type: string, format: uuid }
+    GenreId:
+      in: path
+      name: genreId
+      required: true
+      schema: { type: string, format: uuid }
+    MovieId:
+      in: path
+      name: movieId
+      required: true
+      schema: { type: string, format: uuid }
+    ShowtimeId:
+      in: path
+      name: showtimeId
+      required: true
+      schema: { type: string, format: uuid }
+    ReservationId:
+      in: path
+      name: reservationId
+      required: true
+      schema: { type: string, format: uuid }
+    LockId:
+      in: path
+      name: lockId
+      required: true
+      schema: { type: string, format: uuid }
+    Date:
+      in: query
+      name: date
+      description: ISO date (YYYY-MM-DD), local cinema time
+      schema: { type: string, format: date }
+    DateFrom:
+      in: query
+      name: date_from
+      schema: { type: string, format: date }
+    DateTo:
+      in: query
+      name: date_to
+      schema: { type: string, format: date }
+    Search:
+      in: query
+      name: q
+      schema: { type: string }
+    Page:
+      in: query
+      name: page
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      in: query
+      name: pageSize
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+
+  responses:
+    Unauthorized:
+      description: Unauthorized
+    Forbidden:
+      description: Forbidden
+    NotFound:
+      description: Not found
+    Conflict:
+      description: Conflict
+
+  schemas:
+    Health:
+      type: object
+      properties:
+        status: { type: string, example: ok }
+
+    RegisterInput:
+      type: object
+      required: [email, password, fullName]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+        fullName: { type: string }
+
+    LoginInput:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+
+    AuthResponse:
+      type: object
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        accessToken: { type: string }
+        refreshToken: { type: string }
+
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        fullName: { type: string }
+        role:
+          type: string
+          enum: [user, admin]
+        createdAt: { type: string, format: date-time }
+
+    Genre:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+
+    GenreInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+
+    Movie:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: string }
+        posterUrl: { type: string, format: uri }
+        genres:
+          type: array
+          items: { $ref: '#/components/schemas/Genre' }
+        createdAt: { type: string, format: date-time }
+
+    MovieInput:
+      type: object
+      required: [title, description, genreIds]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        posterUrl: { type: string, format: uri, nullable: true }
+        genreIds:
+          type: array
+          items: { type: string, format: uuid }
+
+    MovieUpdate:
+      type: object
+      properties:
+        title: { type: string }
+        description: { type: string }
+        posterUrl: { type: string, format: uri }
+        genreIds:
+          type: array
+          items: { type: string, format: uuid }
+
+    Auditorium:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        totalSeats: { type: integer }
+        seatingPlan: { $ref: '#/components/schemas/SeatMap' }
+
+    Showtime:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        movieId: { type: string, format: uuid }
+        auditoriumId: { type: string, format: uuid }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        ticketPrice: { type: number, format: float }
+        status:
+          type: string
+          enum: [scheduled, canceled]
+        createdAt: { type: string, format: date-time }
+
+    ShowtimeInput:
+      type: object
+      required: [auditoriumId, startsAt, endsAt, ticketPrice]
+      properties:
+        auditoriumId: { type: string, format: uuid }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        ticketPrice: { type: number, format: float }
+
+    ShowtimeUpdate:
+      type: object
+      properties:
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        ticketPrice: { type: number, format: float }
+        status: { type: string, enum: [scheduled, canceled] }
+
+    Seat:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        row: { type: string, example: "D" }
+        number: { type: integer, example: 7 }
+        type:
+          type: string
+          enum: [standard, premium, accessible]
+      required: [id, row, number, type]
+
+    SeatStatus:
+      type: string
+      enum: [available, held, reserved, blocked]
+
+    SeatMap:
+      type: object
+      properties:
+        showtimeId: { type: string, format: uuid, nullable: true }
+        seats:
+          type: array
+          items:
+            type: object
+            properties:
+              seat: { $ref: '#/components/schemas/Seat' }
+              status: { $ref: '#/components/schemas/SeatStatus' }
+
+    SeatLock:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        showtimeId: { type: string, format: uuid }
+        seatIds:
+          type: array
+          items: { type: string, format: uuid }
+        expiresAt: { type: string, format: date-time }
+
+    ReservationCreate:
+      type: object
+      required: [seatIds]
+      properties:
+        seatIds:
+          type: array
+          items: { type: string, format: uuid }
+        lockId:
+          type: string
+          format: uuid
+          nullable: true
+
+    Reservation:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        showtimeId: { type: string, format: uuid }
+        seatIds:
+          type: array
+          items: { type: string, format: uuid }
+        totalAmount: { type: number, format: float }
+        status:
+          type: string
+          enum: [confirmed, canceled]
+        createdAt: { type: string, format: date-time }
+        canceledAt: { type: string, format: date-time, nullable: true }
+
+    PaginatedMovies:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Movie' }
+        page: { type: integer }
+        pageSize: { type: integer }
+        total: { type: integer }
+
+    PaginatedReservations:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Reservation' }
+        page: { type: integer }
+        pageSize: { type: integer }
+        total: { type: integer }
+
+    ReportSummary:
+      type: object
+      properties:
+        range:
+          type: object
+          properties:
+            from: { type: string, format: date }
+            to: { type: string, format: date }
+        totals:
+          type: object
+          properties:
+            reservations: { type: integer }
+            seatsSold: { type: integer }
+            revenue: { type: number, format: float }
+        groups:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              reservations: { type: integer }
+              seatsSold: { type: integer }
+              revenue: { type: number, format: float }
+              capacityUtilization:
+                type: number
+                description: "0..1"
+
+    ShowtimeStats:
+      type: object
+      properties:
+        showtimeId: { type: string, format: uuid }
+        movieTitle: { type: string }
+        startsAt: { type: string, format: date-time }
+        seatsTotal: { type: integer }
+        seatsSold: { type: integer }
+        capacityUtilization: { type: number }
+        revenue: { type: number, format: float }
