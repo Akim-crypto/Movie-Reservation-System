@@ -56,21 +56,31 @@ func main() {
 	}
 	defer db.Close()
 
-	// Optional: ping to ensure connection
 	if err := db.Ping(); err != nil {
 		log.Fatalf("db ping error: %v", err)
 	}
 
 	app := &App{db: db}
 
+	// ✅ создаем роутер
 	r := chi.NewRouter()
+
+	// ✅ подключаем статику и маршруты
+	setupStaticFiles(r)
+	//r.Get("/hall", hallDiagramHandler)
+	r.Get("/hall", HallDiagramHandler)
+
+	// ✅ уже существующие пути
 	r.Post("/movies", app.createMovieHandler)
 	r.Get("/movies", app.listMoviesHandler)
+	r.Delete("/movies/{id}", app.deleteMovieHandler)
 
+	// ✅ запуск сервера
 	addr := ":8080"
 	log.Printf("listening %s", addr)
 	log.Fatal(http.ListenAndServe(addr, r))
 }
+
 
 // Handler: create movie
 func (a *App) createMovieHandler(w http.ResponseWriter, r *http.Request) {
@@ -235,4 +245,53 @@ func nullString(s string) interface{} {
 		return nil
 	}
 	return s
+}
+
+
+// Handler: delete movie by id
+func (a *App) deleteMovieHandler(w http.ResponseWriter, r *http.Request) {
+    id := chi.URLParam(r, "id")
+    id = strings.TrimSpace(id)
+    if id == "" {
+        http.Error(w, "missing movie id", http.StatusBadRequest)
+        return
+    }
+
+    // perform delete
+    res, err := a.db.Exec(`DELETE FROM movies WHERE id = ?`, id)
+    if err != nil {
+        // If there's a foreign key error (movie used in showtimes/reservations), return 409 Conflict
+        if isForeignKeyError(err) {
+            http.Error(w, "cannot delete movie: there are dependent records (showtimes/reservations). Please remove them first.", http.StatusConflict)
+            return
+        }
+        log.Printf("delete movie err: %v", err)
+        http.Error(w, "internal server error", http.StatusInternalServerError)
+        return
+    }
+
+    // check rows affected
+    rows, err := res.RowsAffected()
+    if err != nil {
+        log.Printf("rows affected err: %v", err)
+        http.Error(w, "internal server error", http.StatusInternalServerError)
+        return
+    }
+    if rows == 0 {
+        http.Error(w, "movie not found", http.StatusNotFound)
+        return
+    }
+
+    // success - no content
+    w.WriteHeader(http.StatusNoContent)
+}
+
+
+func setupStaticFiles(r *chi.Mux) {
+	staticDir := "./static"
+	if _, err := os.Stat(staticDir); os.IsNotExist(err) {
+		_ = os.Mkdir(staticDir, os.ModePerm)
+	}
+	fs := http.FileServer(http.Dir(staticDir))
+	r.Handle("/static/*", http.StripPrefix("/static/", fs))
 }

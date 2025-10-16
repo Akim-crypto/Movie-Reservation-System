@@ -9,4 +9,12 @@ require (
 	github.com/jmoiron/sqlx v1.4.0
 )
 
-require filippo.io/edwards25519 v1.1.0 // indirect
+require (
+	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
+	golang.org/x/text v0.30.0 // indirect
+)
+
+require (
+	filippo.io/edwards25519 v1.1.0 // indirect
+	golang.org/x/image v0.32.0
+)
